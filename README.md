@@ -139,3 +139,85 @@ entity_unit_map = {
   }
 }
 ```
+```
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+import re
+
+# Load the data
+df = pd.read_csv('your_processed_file.csv')
+
+# Clean and preprocess the extracted_text
+def clean_text(text):
+    # Convert to lowercase
+    text = str(text).lower()
+    # Replace common unit representations
+    text = text.replace('cm', ' centimeter ').replace('mm', ' millimeter ')
+    text = text.replace('m', ' meter ').replace('kg', ' kilogram ')
+    text = text.replace('g', ' gram ').replace('l', ' liter ')
+    # Remove special characters
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+df['cleaned_text'] = df['extracted_text'].apply(clean_text)
+
+# Combine entity_name and cleaned_text
+df['combined_features'] = df['entity_name'] + ' ' + df['cleaned_text']
+
+# Encode entity_name
+le = LabelEncoder()
+df['entity_name_encoded'] = le.fit_transform(df['entity_name'])
+
+# Create TF-IDF features
+tfidf = TfidfVectorizer(max_features=1000)
+tfidf_features = tfidf.fit_transform(df['combined_features'])
+
+# Prepare the target variable
+# Assuming entity_value is in the format "number unit"
+def extract_numeric_value(value):
+    match = re.search(r'(\d+(\.\d+)?)', str(value))
+    return float(match.group(1)) if match else np.nan
+
+df['numeric_value'] = df['entity_value'].apply(extract_numeric_value)
+
+# Remove rows with NaN values
+df_clean = df.dropna(subset=['numeric_value'])
+
+# Split the data
+X = tfidf_features[df_clean.index]
+y = df_clean['numeric_value']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train a Random Forest model
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Make predictions
+y_pred = model.predict(X_test)
+
+# Evaluate the model
+mse = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+print(f"Root Mean Squared Error: {rmse}")
+
+# Function to predict entity_value for new data
+def predict_entity_value(entity_name, extracted_text):
+    cleaned_text = clean_text(extracted_text)
+    combined_features = entity_name + ' ' + cleaned_text
+    tfidf_features = tfidf.transform([combined_features])
+    prediction = model.predict(tfidf_features)[0]
+    return prediction
+
+# Example usage
+new_entity_name = "width"
+new_extracted_text = "Size Width Length One Size 42cm/16.54 200cm/78.74"
+predicted_value = predict_entity_value(new_entity_name, new_extracted_text)
+print(f"Predicted value: {predicted_value}")
+```
